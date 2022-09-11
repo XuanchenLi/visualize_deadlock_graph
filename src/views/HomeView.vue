@@ -12,13 +12,13 @@
       </div>
       <div style="margin-top:40px; height: 895px; width: 330px">
         <el-row style="margin-top: 5px">
-          <el-button type="primary" style="width: 60px; margin-left: 13px; padding-left: 18px">
+          <el-button type="primary" style="width: 60px; margin-left: 13px; padding-left: 18px" @click="simplify($event)">
             GO
           </el-button>
-          <el-button type="success" >
+          <el-button type="success" @click="this.clear($event)">
             Clear
           </el-button>
-          <el-button type="warning" style="width: 60px; padding-left: 15px">
+          <el-button type="warning" style="width: 60px; padding-left: 15px" @click="this.simplifyStep($event)">
             Step
           </el-button>
           <el-button type="info" style="width: 70px; padding-left: 18px">
@@ -82,7 +82,7 @@ import * as echarts from 'echarts'
 import {GraphEdgeItemOption, GraphNodeItemOption} from "echarts/types/src/chart/graph/GraphSeries";
 import {EChartsType} from "echarts/core";
 import {reactive, ref, watch} from "vue";
-import {ElFormItem} from "element-plus";
+import {ElFormItem, ElMessage} from "element-plus";
 import {Refresh} from '@element-plus/icons'
 
 
@@ -115,6 +115,7 @@ export default class HomeView extends Vue {
   addPNodeVis: boolean = false
   addRNodeVis: boolean = false
   delEdgeVis: boolean = false
+  history: any = []
   left:number = 0
   top:number = 0
   gleft: number = 0
@@ -131,67 +132,53 @@ export default class HomeView extends Vue {
     value: 1,
   })
   ruleFormRef = ref<typeof ElFormItem>()
+  stake: GraphNodeItemOption[] = [
+    {
+      name: '__stake1',
+      x: 0,
+      y: 0,
+      symbolSize: 0,
+      label: {
+        show: false
+      }
 
-
-  links: GraphEdgeItemOption[] = [
+    },
     {
-      source: 'Node 2',
-      target: 'Node 1',
-      lineStyle: {
-        curveness: 0.0
+      name: '__stake2',
+      x: 800,
+      y: 0,
+      symbolSize: 0,
+      label: {
+        show: false
       }
     },
     {
-      source: 'Node 1',
-      target: 'Node 3',
-      lineStyle: {
-        curveness: 0.0
+      name: '__stake3',
+      x: 0,
+      y: 600,
+      symbolSize: 0,
+      label: {
+        show: false
       }
     },
     {
-      source: 'Node 2',
-      target: 'Node 3',
-      lineStyle: {
-        curveness: 0.0
-      }
-    },
-    {
-      source: 'Node 2',
-      target: 'Node 4',
-      lineStyle: {
-        curveness: 0.0
-      }
-    },
-    {
-      source: 'Node 1',
-      target: 'Node 4',
-      lineStyle: {
-        curveness: 0.0
+      name: '__stake4',
+      x: 800,
+      y: 600,
+      symbolSize: 0,
+      label: {
+        show: false
       }
     }
   ]
 
+
+  links: GraphEdgeItemOption[] = [
+
+  ]
+
   nodes: GraphNodeItemOption[] = [
-    {
-      name: 'Node 1',
-      x: 300,
-      y: 300
-    },
-    {
-      name: 'Node 2',
-      x: 800,
-      y: 300
-    },
-    {
-      name: 'Node 3',
-      x: 550,
-      y: 100
-    },
-    {
-      name: 'Node 4',
-      x: 550,
-      y: 500
-    }
+
   ]
   option: EchartsOption = {
     title: {
@@ -207,13 +194,14 @@ export default class HomeView extends Vue {
         layout: 'none',
         symbolSize: 50,
         roam: false,
+
         scaleLimit: {
           min:0.4,
           max:1,
         },
         label: {
           show: true,
-          fontSize: 15
+          fontSize: 15,
         },
         edgeSymbol: ['circle', 'arrow'],
         edgeSymbolSize: [3, 15],
@@ -232,6 +220,7 @@ export default class HomeView extends Vue {
     ]
   }
   graph: any = null
+  id: number = 0;
   mounted() {
 
     let main: HTMLElement = document.getElementById("graph") as HTMLElement;
@@ -267,10 +256,25 @@ export default class HomeView extends Vue {
       // console.log("up")
       // console.log(self.fromObj.data["category"], self.toObj)
       if (param.dataType == "node") {
+        clearInterval(this.id)
         self.delNodeVis = true
         self.toObj = param
-        if (self.fromObj != null && self.fromObj.dataType == "node" && self.fromObj.name != self.toObj.name && self.toObj.data["category"] != self.fromObj.data["category"]) {
-          let cnt:number = 0
+
+        if (self.fromObj != null && self.fromObj.dataType == "node" && self.fromObj.name != self.toObj.name) {
+          if (self.toObj.data["category"] == self.fromObj.data["category"]) {
+            this.inform("同种对象不可连接", 'warning')
+            return
+          }
+
+          if (self.fromObj.data["category"] == "Resource") {
+            let cnt = this.getAskRest("", self.fromObj.name)
+            if (cnt[1] <= 0)
+            {
+              this.inform("超出资源个数", 'warning')
+              return
+            }
+          }
+          //let cnt:number = 0
           self.links.push(
               {
                 source: self.fromObj.name,
@@ -281,32 +285,13 @@ export default class HomeView extends Vue {
                 }
               }
           )
-          for (var i in self.links) {
-           if ((self.links[i].source == self.fromObj.name && self.links[i].target == self.toObj.name) ||
-               (self.links[i].source == self.toObj.name && self.links[i].target == self.fromObj.name)) {
-             cnt += 1
-           }
-          }
-          //console.log(cnt)
-          if (cnt >= 2) {
-            let tmp: number = 0
-            for (var i in self.links) {
-              if ((self.links[i].source == self.fromObj.name && self.links[i].target == self.toObj.name) ||
-                  (self.links[i].source == self.toObj.name && self.links[i].target == self.fromObj.name)) {
-                //tmp += 1
-                let flag: number = self.links[i].source == self.fromObj.name && self.links[i].target == self.toObj.name ? 1 : -1
-                self.links[i].lineStyle["curveness"] = -0.4 + 0.8 * (tmp / (cnt - 1))
-                self.links[i].lineStyle["curveness"] *= flag
-                tmp += 1
-                // console.log(self.links[i].lineStyle["curveness"])
-              }
-            }
-          }
+          self.clean(self.fromObj.name, self.toObj.name)
           self.graph.setOption(self.option)
         }else {
 
         }
       }
+      //console.log(self.links)
       self.fromObj = null
       self.toObj = null
     })
@@ -318,10 +303,47 @@ export default class HomeView extends Vue {
         self.curNodeData = param
       }
     })
+    for (let i in this.stake) {
+      this.nodes.push(this.stake[i])
+    }
+    //console.log(this.nodes)
+
     this.graph.setOption(this.option)
 
 
 
+  }
+  inform(msg: string, type:any) {
+    ElMessage({
+      message: msg,
+      type: type,
+    })
+  }
+  clean (from: string, to: string) {
+    //console.log(11)
+    let cnt = 0
+    let self = this
+    for (var i in this.links) {
+      if ((self.links[i].source == from && self.links[i].target == to) ||
+          (self.links[i].source == to && self.links[i].target == from)) {
+        cnt += 1
+      }
+    }
+    //console.log(cnt)
+    if (cnt >= 2) {
+      let tmp: number = 0
+      for (var i in self.links) {
+        if ((self.links[i].source == from && self.links[i].target == to) ||
+            (self.links[i].source == to && self.links[i].target == from)) {
+          //tmp += 1
+          let flag: number = self.links[i].source == from && self.links[i].target == to ? 1 : -1
+          this!.links[i]!.lineStyle!["curveness"] = -0.4 + 0.8 * (tmp / (cnt - 1))
+          this!.links[i]!.lineStyle!["curveness"]! *= flag
+          tmp += 1
+          // console.log(self.links[i].lineStyle["curveness"])
+        }
+      }
+    }
   }
   prevent(e:any) {
     e.preventDefault()
@@ -341,15 +363,16 @@ export default class HomeView extends Vue {
       xAxisIndex:0
     },[x,y]);
     this.gleft = parseInt(result[0])
-    this.gtop = parseInt(result[1]) - 20
-
+    this.gtop = parseInt(result[1]) - 30
+    //console.log(this.gleft, this.gtop)
 
     var menu = document.querySelector('.contextmenu')
     this.styleMenu(e, menu)
     this.visible = true
     this.addPNodeVis = true
     this.addRNodeVis = true
-
+    //console.log(this.gleft, this.gtop)
+    //console.log(this.option.series)
 
   }
   closeMenu() {
@@ -433,6 +456,7 @@ export default class HomeView extends Vue {
   }
 
   addPNode(e:any) {
+    clearInterval(this.id)
     this.nodes.push(
         {
           name: 'Process ' + this.totalP++,
@@ -443,22 +467,30 @@ export default class HomeView extends Vue {
           value: 1,
           itemStyle: {
             color: this.randomHexColor()
+          },
+          label: {
+            formatter: "{b}"
           }
         }
     )
     this.graph.setOption(this.option)
   }
   addRNode(e:any) {
+    clearInterval(this.id)
     this.nodes.push(
         {
           name: 'Resource ' + this.totalR++,
           x: this.gleft,
           y: this.gtop,
+
           symbol: "rect",
           category: "Resource",
           value: 1,
           itemStyle: {
             color: this.randomHexColor()
+          },
+          label: {
+            formatter: "{b}\n{c}"
           }
         }
     )
@@ -478,9 +510,9 @@ export default class HomeView extends Vue {
         break
       }
     }
-    for (var i in this.links) {
+    for (let i = this.links.length - 1; i >=0; --i) {
       if (this.links[i].source === this.curObj.name || this.links[i].target === this.curObj.name){
-        this.links.splice(parseInt(i), 1)
+        this.links.splice(i, 1)
       }
     }
     this.curObj = null
@@ -516,7 +548,7 @@ export default class HomeView extends Vue {
           }
         }
         this.nodeDataVis = false
-        console.log(this.nodes)
+        // console.log(this.nodes)
         this.graph.setOption(this.option)
       } else {
         console.log('error submit!')
@@ -555,8 +587,136 @@ export default class HomeView extends Vue {
     }
     tar.blur()
   }
+  clear(e: any) {
+    this.myBlur(e)
+    this.nodes.splice(0, this.nodes.length)
+    this.links.splice(0, this.links.length)
+    for (let i in this.stake) {
+      this.nodes.push(this.stake[i])
+    }
+    this.graph.setOption(this.option)
+  }
+  findNextP() {
+    //console.log(this.links)
+    for (let i in this.nodes) {
+      let cnt = 0
+      let valid = true
+      if (this.nodes[i].category != "Process") continue
+      for (let j in this.links) {
+        //console.log(j)
+         if (this.links[j].source === this.nodes[i].name) {
+           // 有请求边
+           valid = false
+           break;
+         }else if (this.links[j].target === this.nodes[i].name) {
+           cnt += 1
+         }
+      }
+      //console.log(this.links)
+      if (!valid || cnt == 0) continue
+      //console.log(this.nodes[i].name)
+      return this.nodes[i].name
+    }
+    return null
+  }
+  getAskRest(name1: string, name2: string) {
+    let cntA = 0
+    let cntR = 0
+    for (var i in this.links) {
+      if (this.links[i].source === name2 ) {
+        cntR += 1
+      }
+      if (this.links[i].source === name1 && this.links[i].target === name2) {
+        cntA += 1
+      }
+    }
+    for (var i in this.nodes) {
+      if (this.nodes[i].name == name2) {
+        cntR = (this.nodes[i].value as number) - cntR
+        break
+      }
+    }
+    return [cntA, cntR]
+  }
+  updateSatisfy() {
+    let newSet = []
+    for (let i in this.nodes) {
+      let valid = true
+      let isolate = true
+      if (this.nodes[i].category != "Process") continue
+      for (let j in this.links) {
+        if (this.links[j].source == this.nodes[i].name || this.links[j].target == this.nodes[i].name)
+          isolate = false
+        if (this.links[j].source == this.nodes[i].name) {
+          let cnt = this.getAskRest(this.nodes[i].name as string, this.links[j].target as string)
+          if (cnt[1] < cnt[0]) {
+            valid = false
+            break
+          }
+        }
+      }
+      if (!valid || isolate) continue
+      for (let j in this.links) {
+        if (this.links[j].source == this.nodes[i].name) {
+          this.links[j].source = this.links[j].target
+          this.links[j].target = this.nodes[i].name
+          this.links[j]!.lineStyle!.color = "rgb(0, 0, 128)"
+          this.clean(this.links[j].source as string, this.links[j].target as string)
+        }
+      }
+      newSet.push(this.nodes[i].name)
+    }
+    //this.graph.clear()
+    //this.sleepAsync(0, () => {this.graph.setOption(this.option)})
+    this.graph.setOption(this.option)
+    return newSet
+  }
+  simplifyStep(e: any) {
+    //console.log(this.links)
+    this.myBlur(e)
+    //console.log(this.links)
+    let next = this.findNextP()
+    //console.log(this.links)
+
+    if (next == null) {
+      clearInterval(this.id)
+      this.inform("约简完毕", "success")
+      return null
+    }
+    else {
+      // 变为孤立
+      for (let i = this.links.length-1; i >= 0; i--) {
+        //console.log(i)
+        if (this.links[i].target === next) {
+          this.links.splice(i, 1)
+        }
+      }
+      //this.graph.setOption(this.option)
+      // 更新其余节点
+      return this.updateSatisfy()
+    }
+
+  }
+  simplify(e: any) {
+    clearInterval(this.id)
+    this.myBlur(e)
+    let res:(string | undefined)[] | null = ["init"]
+    this.id = setInterval(() => this.simplifyStep(e), 2000)
+    this.simplifyStep(e)
+  }
+
+  sleep(delay:number): void {
+    var start = (new Date()).getTime();
+    while ((new Date()).getTime() - start < delay) {
+      continue;
+    }
+  }
+
+
 
 }
+
+
 </script>
 
 
