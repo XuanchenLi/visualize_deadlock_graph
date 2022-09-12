@@ -21,7 +21,7 @@
           <el-button type="warning" style="width: 60px; padding-left: 15px" @click="this.simplifyStep($event)">
             Step
           </el-button>
-          <el-button type="info" style="width: 70px; padding-left: 18px">
+          <el-button type="info" style="width: 70px; padding-left: 18px" :disabled="this.curIndex === -1" @click="this.rollback($event)">
             Back
           </el-button>
         </el-row>
@@ -131,6 +131,8 @@ export default class HomeView extends Vue {
     name: '',
     value: 1,
   })
+  curIndex: number = -1
+  rollbackQ: any[] = []
   ruleFormRef = ref<typeof ElFormItem>()
   stake: GraphNodeItemOption[] = [
     {
@@ -286,6 +288,8 @@ export default class HomeView extends Vue {
               }
           )
           self.clean(self.fromObj.name, self.toObj.name)
+          this.curIndex = -1
+          this.rollbackQ.splice(0, this.rollbackQ.length)
           self.graph.setOption(self.option)
         }else {
 
@@ -473,6 +477,8 @@ export default class HomeView extends Vue {
           }
         }
     )
+    this.curIndex = -1
+    this.rollbackQ.splice(0, this.rollbackQ.length)
     this.graph.setOption(this.option)
   }
   addRNode(e:any) {
@@ -494,6 +500,8 @@ export default class HomeView extends Vue {
           }
         }
     )
+    this.curIndex = -1
+    this.rollbackQ.splice(0, this.rollbackQ.length)
     this.graph.setOption(this.option)
   }
   randomHexColor() { //随机生成十六进制颜色
@@ -516,6 +524,8 @@ export default class HomeView extends Vue {
       }
     }
     this.curObj = null
+    this.curIndex = -1
+    this.rollbackQ.splice(0, this.rollbackQ.length)
     this.graph.setOption(this.option)
   }
   delEdge() {
@@ -525,6 +535,8 @@ export default class HomeView extends Vue {
       }
     }
     this.curObj = null
+    this.curIndex = -1
+    this.rollbackQ.splice(0, this.rollbackQ.length)
     this.graph.setOption(this.option)
   }
   submitForm = (formEl: any, e:any) => {
@@ -549,6 +561,8 @@ export default class HomeView extends Vue {
         }
         this.nodeDataVis = false
         // console.log(this.nodes)
+        this.curIndex = 0
+        this.rollbackQ.splice(0, this.rollbackQ.length)
         this.graph.setOption(this.option)
       } else {
         console.log('error submit!')
@@ -594,6 +608,10 @@ export default class HomeView extends Vue {
     for (let i in this.stake) {
       this.nodes.push(this.stake[i])
     }
+    this.totalP = 0
+    this.totalR = 0
+    this.curIndex = -1
+    this.rollbackQ.splice(0, this.rollbackQ.length)
     this.graph.setOption(this.option)
   }
   findNextP() {
@@ -639,6 +657,8 @@ export default class HomeView extends Vue {
     return [cntA, cntR]
   }
   updateSatisfy() {
+    let minus = []
+    let plus = []
     let newSet = []
     for (let i in this.nodes) {
       let valid = true
@@ -658,9 +678,11 @@ export default class HomeView extends Vue {
       if (!valid || isolate) continue
       for (let j in this.links) {
         if (this.links[j].source == this.nodes[i].name) {
+          minus.push(JSON.parse(JSON.stringify(this.links[j])))
           this.links[j].source = this.links[j].target
           this.links[j].target = this.nodes[i].name
           this.links[j]!.lineStyle!.color = "rgb(0, 0, 128)"
+          plus.push(JSON.parse(JSON.stringify(this.links[j])))
           this.clean(this.links[j].source as string, this.links[j].target as string)
         }
       }
@@ -668,10 +690,20 @@ export default class HomeView extends Vue {
     }
     //this.graph.clear()
     //this.sleepAsync(0, () => {this.graph.setOption(this.option)})
+    for (let i in minus) {
+      this.rollbackQ[this.curIndex][0].push(minus[i])
+    }
+    for (let i in plus) {
+      this.rollbackQ[this.curIndex][1].push(plus[i])
+    }
+    //console.log(this.rollbackQ)
     this.graph.setOption(this.option)
     return newSet
   }
   simplifyStep(e: any) {
+
+    let minus = []
+    let plus: never[] = []
     //console.log(this.links)
     this.myBlur(e)
     //console.log(this.links)
@@ -688,11 +720,20 @@ export default class HomeView extends Vue {
       for (let i = this.links.length-1; i >= 0; i--) {
         //console.log(i)
         if (this.links[i].target === next) {
+          minus.push(this.links[i])
           this.links.splice(i, 1)
         }
       }
+      this.curIndex += 1
+      if (this.rollbackQ.length - 1 > this.curIndex) {
+        this.rollbackQ.splice(this.curIndex - 1)
+        this.rollbackQ.push([])
+      }
+      this.rollbackQ[this.curIndex] = [minus, plus]
+      //console.log(this.rollbackQ[this.curIndex][1])
       //this.graph.setOption(this.option)
       // 更新其余节点
+      //console.log(this.curIndex)
       return this.updateSatisfy()
     }
 
@@ -704,6 +745,29 @@ export default class HomeView extends Vue {
     this.id = setInterval(() => this.simplifyStep(e), 2000)
     this.simplifyStep(e)
   }
+  rollback(e: any) {
+    clearInterval(this.id)
+    this.myBlur(e)
+    if (this.curIndex >= 0) {
+     for (let i in this.rollbackQ[this.curIndex][1]) {
+       for (let j in this.links) {
+         if (this.links[j].source == this.rollbackQ[this.curIndex][1][i].source
+             && this.links[j].target == this.rollbackQ[this.curIndex][1][i].target) {
+           this.links.splice(parseInt(j), 1)
+           this.clean(this.rollbackQ[this.curIndex][1][i].source, this.rollbackQ[this.curIndex][1][i].target)
+           break
+         }
+       }
+     }
+      for (let i in this.rollbackQ[this.curIndex][0]) {
+        this.links.push(this.rollbackQ[this.curIndex][0][i])
+        this.clean(this.rollbackQ[this.curIndex][0][i].source, this.rollbackQ[this.curIndex][0][i].target)
+      }
+      this.curIndex -= 1
+      //console.log(this.links)
+      this.graph.setOption(this.option)
+    }
+  }
 
   sleep(delay:number): void {
     var start = (new Date()).getTime();
@@ -711,6 +775,9 @@ export default class HomeView extends Vue {
       continue;
     }
   }
+
+
+
 
 
 
