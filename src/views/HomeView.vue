@@ -25,10 +25,47 @@
             Back
           </el-button>
         </el-row>
-        <div class="chat" style="">
-          <ul style="overflow-y: scroll">
+        <el-row>
+          <div class="slider-block">
+            <span class="demonstration" style="font-size: 15px">自动执行间隔时间(ms) </span>
+            <el-slider v-model="intervalTime" :min="100" :max="3000" :step="100"/>
+          </div>
+        </el-row>
+        <!--
+        <el-row>
+          <div class="slider-block">
+            <span class="demonstration" style="font-size: 15px">结点尺寸 </span>
+            <el-slider v-model="symbolSize" :min="40" :max="100" :step="5" @change="changeSize"/>
+          </div>
+        </el-row>
+        -->
+        <div class="chat" style="overflow-y: scroll">
 
-          </ul>
+          <el-collapse style="" v-show="this.curIndex >= 0">
+            <el-collapse-item v-for="i in this.curIndex + 1" :name="i" class="step-item">
+              <template #title>
+                Step{{i}}
+              </template>
+              <div>
+                <el-timeline>
+                  <el-timeline-item
+                    color="#0bbd87"
+                  >
+                    找到非孤立无请求边进程结点：<br/>{{this.rollbackQ[i - 1][2][0]}}
+                  </el-timeline-item>
+                  <el-timeline-item
+                      color="#24406F"
+                  >
+                    <span v-if="this.rollbackQ[i - 1][2].length > 1">当前非孤立无请求边进程结点：</span>
+                    <span v-if="this.rollbackQ[i - 1][2].length > 1" v-for="j in (this.rollbackQ[i - 1][2].length)"> {{this.rollbackQ[i - 1][2][j]}}<br/></span>
+                    <span v-if="this.rollbackQ[i - 1][2].length === 1">无非孤立无请求边结点</span>
+                  </el-timeline-item>
+
+                </el-timeline>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+
         </div>
       </div>
     </el-container>
@@ -131,6 +168,8 @@ export default class HomeView extends Vue {
     name: '',
     value: 1,
   })
+  intervalTime:number = 1000
+  symbolSize:number = 50
   curIndex: number = -1
   rollbackQ: any[] = []
   ruleFormRef = ref<typeof ElFormItem>()
@@ -188,7 +227,7 @@ export default class HomeView extends Vue {
     },
     // nodeScaleRatio: 0,
 
-    animationDurationUpdate: 1500,
+    animationDurationUpdate: 1300,
     animationEasingUpdate: 'quinticInOut',
     series : [
       {
@@ -344,6 +383,15 @@ export default class HomeView extends Vue {
           this!.links[i]!.lineStyle!["curveness"] = -0.4 + 0.8 * (tmp / (cnt - 1))
           this!.links[i]!.lineStyle!["curveness"]! *= flag
           tmp += 1
+          // console.log(self.links[i].lineStyle["curveness"])
+        }
+      }
+    }else if (cnt == 1) {
+      for (var i in self.links) {
+        if ((self.links[i].source == from && self.links[i].target == to) ||
+            (self.links[i].source == to && self.links[i].target == from)) {
+          this!.links[i]!.lineStyle!["curveness"] = 0
+          break
           // console.log(self.links[i].lineStyle["curveness"])
         }
       }
@@ -532,8 +580,10 @@ export default class HomeView extends Vue {
     for (var i in this.links) {
       if (this.links[i].source === this.curObj.data["source"] && this.links[i].target === this.curObj.data["target"]){
         this.links.splice(parseInt(i), 1)
+        break
       }
     }
+    this.clean(this.curObj.data["source"], this.curObj.data["target"])
     this.curObj = null
     this.curIndex = -1
     this.rollbackQ.splice(0, this.rollbackQ.length)
@@ -632,7 +682,6 @@ export default class HomeView extends Vue {
       }
       //console.log(this.links)
       if (!valid || cnt == 0) continue
-      //console.log(this.nodes[i].name)
       return this.nodes[i].name
     }
     return null
@@ -712,6 +761,10 @@ export default class HomeView extends Vue {
 
     if (next == null) {
       clearInterval(this.id)
+      if (this.links.length != 0) {
+        this.inform("不可完全约简！", "error")
+        return null
+      }
       this.inform("约简完毕", "success")
       return null
     }
@@ -726,15 +779,21 @@ export default class HomeView extends Vue {
       }
       this.curIndex += 1
       if (this.rollbackQ.length - 1 > this.curIndex) {
-        this.rollbackQ.splice(this.curIndex - 1)
-        this.rollbackQ.push([])
+        this.rollbackQ.splice(this.curIndex)
       }
-      this.rollbackQ[this.curIndex] = [minus, plus]
+      //console.log(this.rollbackQ.length)
+      this.rollbackQ.push([])
+      //console.log(this.rollbackQ.length)
       //console.log(this.rollbackQ[this.curIndex][1])
       //this.graph.setOption(this.option)
       // 更新其余节点
-      //console.log(this.curIndex)
-      return this.updateSatisfy()
+      this.rollbackQ[this.curIndex] = [minus, plus, []]
+      // console.log(this.curIndex)
+      let updateSet = this.updateSatisfy()
+      this.rollbackQ[this.curIndex][2].push(next)
+      this.rollbackQ[this.curIndex][2] = this.rollbackQ[this.curIndex][2].concat(updateSet)
+      //console.log(this.rollbackQ[this.curIndex][2])
+      return updateSet
     }
 
   }
@@ -742,10 +801,11 @@ export default class HomeView extends Vue {
     clearInterval(this.id)
     this.myBlur(e)
     let res:(string | undefined)[] | null = ["init"]
-    this.id = setInterval(() => this.simplifyStep(e), 2000)
+    this.id = setInterval(() => this.simplifyStep(e), this.intervalTime)
     this.simplifyStep(e)
   }
   rollback(e: any) {
+    console.log(this.curIndex)
     clearInterval(this.id)
     this.myBlur(e)
     if (this.curIndex >= 0) {
@@ -776,10 +836,12 @@ export default class HomeView extends Vue {
     }
   }
 
-
-
-
-
+  changeSize() {
+    console.log(this.option)
+    //this.option.series = this.symbolSize
+    this.graph.clear()
+    this.graph.setOption(this.option)
+  }
 
 }
 
@@ -865,8 +927,35 @@ export default class HomeView extends Vue {
   margin-top: 5px;
   border-radius: 15px;
   border: solid azure;
-  height: 840px;
+  height: 800px;
   box-shadow:0px 0px 8px -2px #000;
 }
 
+.step-item .el-collapse-item__header {
+  color: rgb(30, 34, 45);
+  font-size: medium;
+  font-family: "Arial","Microsoft YaHei","黑体","宋体",serif;
+  background-color: #f0f0f3;
+}
+.step-item .el-collapse-item__wrap {
+  font-family: "Arial","Microsoft YaHei","黑体","宋体",serif;
+
+}
+.slider-block {
+  display: flex;
+  align-items: center;
+  width: 340px;
+}
+.slider-block .el-slider {
+  margin-top: 0;
+  margin-left: 12px;
+  width: 200px;
+  margin-left: 0px;
+}
+.demonstration {
+  width: 120px;
+}
+.slider-demo-block .demonstration + .el-slider {
+  flex: 0 0 70%;
+}
 </style>
